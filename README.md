@@ -1,2 +1,7 @@
 # GetProcessCPUTimeOnWindows
-Python script for getting a process CPU Time on Windows
+A Python script for getting a process CPU Time on Windows
+
+## Requirements
+```shell
+pip install WMI
+```
