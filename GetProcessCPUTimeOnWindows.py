@@ -16,7 +16,7 @@ class Runner(Thread):
         start_time = time.time()
         with subprocess.Popen(r"java -jar Test.jar") as process:
             process_info = wmi_service.query(f"SELECT * FROM Win32_Process WHERE ParentProcessId = {process.pid}")
-            while len(process_info) == 0 and not process.poll():
+            while len(process_info) == 0 and not process.poll():  # not finished
                 process_info = wmi_service.query(f"SELECT * FROM Win32_Process WHERE ParentProcessId = {process.pid}")
             try:
                 handle = win32api.OpenProcess(win32con.PROCESS_ALL_ACCESS, False, process_info[0].ProcessId)
@@ -26,6 +26,7 @@ class Runner(Thread):
                 win32api.CloseHandle(handle)
             except:
                 print((int(process_info[0].KernelModeTime) + int(process_info[0].UserModeTime)) / 1000)
+                # The original unit is 100 nanoseconds and 10000000 should be used, but such results seem too small.
             print(time.time() - start_time)
 
 
