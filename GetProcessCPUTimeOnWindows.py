@@ -1,35 +1,44 @@
-import subprocess
-import time
-from threading import Thread
-
-import pythoncom
 import win32api
+import win32process
 import win32con
-import wmi
-from win32 import win32process
+import time
 
+# Reference: https://www.programcreek.com/python/example/8489/win32process.CreateProcess
+# Reference: https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/ns-processthreadsapi-startupinfoa
 
-class Runner(Thread):
-    def run(self):
-        pythoncom.CoInitialize()
-        wmi_service = wmi.WMI()
-        start_time = time.time()
-        with subprocess.Popen(r"java -jar Test.jar") as process:
-            process_info = wmi_service.query(f"SELECT * FROM Win32_Process WHERE ParentProcessId = {process.pid}")
-            while len(process_info) == 0 and not process.poll():  # not finished
-                process_info = wmi_service.query(f"SELECT * FROM Win32_Process WHERE ParentProcessId = {process.pid}")
-            try:
-                handle = win32api.OpenProcess(win32con.PROCESS_ALL_ACCESS, False, process_info[0].ProcessId)
-                process.wait()
-                process_info = win32process.GetProcessTimes(handle)
-                print((process_info['KernelTime'] + process_info['UserTime']) / 10000000)
-                win32api.CloseHandle(handle)
-            except:
-                print((int(process_info[0].KernelModeTime) + int(process_info[0].UserModeTime)) / 1000)
-                # The original unit is 100 nanoseconds and 10000000 should be used, but such results seem too small.
-            print(time.time() - start_time)
+StartupInfo = win32process.STARTUPINFO()
+StartupInfo.dwFlags = win32process.STARTF_USESHOWWINDOW
+StartupInfo.wShowWindow = win32con.SW_NORMAL
+StartupInfo.hStdInput = win32api.GetStdHandle(win32api.STD_INPUT_HANDLE)
+StartupInfo.hStdOutput = win32api.GetStdHandle(win32api.STD_OUTPUT_HANDLE)
+StartupInfo.hStdError = win32api.GetStdHandle(win32api.STD_ERROR_HANDLE)
 
+command = "ping -n 4 127.0.0.1"
 
-if __name__ == "__main__":
-    for i in range(5):
-        Runner().start()
+startTime = time.time()
+TIMEOUT = 1
+
+# create subprocess using win32api
+hProcess, hThread, dwProcessId, dwThreadId = win32process.CreateProcess(
+                None,
+                command,
+                None,
+                None,
+                0,
+                win32process.NORMAL_PRIORITY_CLASS,
+                None,
+                None,
+                StartupInfo)
+
+# waiting for subprocess to exit, using polling mode
+while win32process.GetExitCodeProcess(hProcess) == win32con.STILL_ACTIVE:
+    if time.time() - startTime > TIMEOUT:
+        print(time.time() - startTime)
+        win32api.TerminateProcess(hProcess, 0)
+    time.sleep(0.1) # there is no wait method in windows (maybe)
+
+# query cpu time using win32api
+sTime = win32process.GetProcessTimes(hProcess)
+print(sTime)
+print(f"cputime: {(sTime['KernelTime'] + sTime['UserTime']) / 10000000}")
+
