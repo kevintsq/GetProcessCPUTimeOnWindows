@@ -15,7 +15,7 @@ class Runner(Thread):
         pythoncom.CoInitialize()
         wmi_service = wmi.WMI()
         start_time = time.time()
-        with subprocess.Popen(r"java -jar C:\Users\tanta\Documents\Personal\Studies\Undergraduate\Java\out\artifacts\Java_jar\Java.jar") as process:
+        with subprocess.Popen(r"java -jar Test.jar") as process:
             process_info = wmi_service.query(
                 f"SELECT * FROM Win32_Process WHERE ParentProcessId = {process.pid}")
             rtv = process.poll()
