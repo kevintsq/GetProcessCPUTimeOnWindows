@@ -35,10 +35,11 @@ while win32process.GetExitCodeProcess(hProcess) == win32con.STILL_ACTIVE:
     if time.time() - startTime > TIMEOUT:
         print(time.time() - startTime)
         win32api.TerminateProcess(hProcess, 0)
-    time.sleep(0.1) # there is no wait method in windows (maybe)
+    time.sleep(0.1) # there is no wait method in windows (maybe). the accuracy won't change if you raise this sleep time.
 
 # query cpu time using win32api
 sTime = win32process.GetProcessTimes(hProcess)
-print(sTime)
+# print(sTime)
 print(f"cputime: {(sTime['KernelTime'] + sTime['UserTime']) / 10000000}")
+print(f"realtime: {(sTime['ExitTime'] - sTime['CreationTime']).total_seconds()}")
 
