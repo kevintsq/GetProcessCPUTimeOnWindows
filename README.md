@@ -1,5 +1,5 @@
-# GetProcessCPUTimeOnWindows
-A Python script for getting a process CPU Time on Windows
+# GetSubprocessCPUTimeSpawnedByParentProcessOnWindows
+A Python script for getting the CPU Time for a subprocess spawned by a parent process on Windows
 
 ## Requirements
 Python 3.6+
