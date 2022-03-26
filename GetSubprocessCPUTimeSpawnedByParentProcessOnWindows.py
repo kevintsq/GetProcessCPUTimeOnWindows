@@ -1,3 +1,4 @@
+import ctypes
 import subprocess
 import time
 from threading import Thread
@@ -5,8 +6,8 @@ from threading import Thread
 import pythoncom
 import win32api
 import win32con
+import win32process
 import wmi
-from win32 import win32process
 
 
 class Runner(Thread):
@@ -14,22 +15,46 @@ class Runner(Thread):
         pythoncom.CoInitialize()
         wmi_service = wmi.WMI()
         start_time = time.time()
-        with subprocess.Popen(r"java -jar Test.jar") as process:
-            process_info = wmi_service.query(f"SELECT * FROM Win32_Process WHERE ParentProcessId = {process.pid}")
-            while len(process_info) == 0 and not process.poll():  # not finished
-                process_info = wmi_service.query(f"SELECT * FROM Win32_Process WHERE ParentProcessId = {process.pid}")
-            try:
-                handle = win32api.OpenProcess(win32con.PROCESS_ALL_ACCESS, False, process_info[0].ProcessId)
-                process.wait()
-                process_info = win32process.GetProcessTimes(handle)
-                print((process_info['KernelTime'] + process_info['UserTime']) / 10000000)
-                win32api.CloseHandle(handle)
-            except:
-                print((int(process_info[0].KernelModeTime) + int(process_info[0].UserModeTime)) / 1000)
-                # The original unit is 100 nanoseconds and 10000000 should be used, but such results seem too small.
-            print(time.time() - start_time)
+        with subprocess.Popen(r"java -jar C:\Users\tanta\Documents\Personal\Studies\Undergraduate\Java\out\artifacts\Java_jar\Java.jar") as process:
+            process_info = wmi_service.query(
+                f"SELECT * FROM Win32_Process WHERE ParentProcessId = {process.pid}")
+            rtv = process.poll()
+            while rtv is None:  # not finished
+                process_info = wmi_service.query(
+                    f"SELECT * FROM Win32_Process WHERE ParentProcessId = {process.pid}")
+                rtv = process.poll()
+            rtime = time.time() - start_time
+
+            handle = process._handle
+            creation_time = ctypes.c_ulonglong()
+            exit_time = ctypes.c_ulonglong()
+            kernel_time = ctypes.c_ulonglong()
+            user_time = ctypes.c_ulonglong()
+            rc = ctypes.windll.kernel32.GetProcessTimes(handle,
+                                                        ctypes.byref(creation_time),
+                                                        ctypes.byref(exit_time),
+                                                        ctypes.byref(kernel_time),
+                                                        ctypes.byref(user_time))
+            if not rc:
+                raise Exception('GetProcessTimes() returned an error')
+            # result.rtime = (exit_time.value - creation_time.value) / 10000000
+            ctime = (user_time.value + kernel_time.value) / 10000000
+
+            if len(process_info) > 0:
+                wmi_ctime = max((int(process_info[0].KernelModeTime) + int(process_info[0].UserModeTime)) / 10000000,
+                                ctime)
+                try:
+                    handle = win32api.OpenProcess(win32con.PROCESS_ALL_ACCESS, False, process_info[0].ProcessId)
+                    process_times = win32process.GetProcessTimes(handle)
+                    ctime = max((process_times['KernelTime'] + process_times['UserTime']) / 10000000, wmi_ctime)
+                    win32api.CloseHandle(handle)
+                except:
+                    ctime = wmi_ctime
+            # pythoncom.CoUninitialize()
+            print(f"return value: {rtv}")
+            print(f"cputime: {ctime}")
+            print(f"realtime: {rtime}")
 
 
 if __name__ == "__main__":
-    for i in range(5):
-        Runner().start()
+    Runner().run()
