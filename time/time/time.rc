@@ -1,0 +1,8 @@
+#include "detver.h"
+
+#define VER_INTERNALNAME_STR        "time"
+#define VER_ORIGINALFILENAME_STR    "time.exe"
+#define VER_FILEDESCRIPTION_STR     "Process Time Counting Program"
+#define VER_COMPANYNAME_STR         "Microsoft Corporation"
+
+#include "common.ver"

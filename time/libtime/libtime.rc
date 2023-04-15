@@ -1,0 +1,8 @@
+#include "detver.h"
+
+#define VER_INTERNALNAME_STR        "libtime" DETOURS_STRINGIFY(DETOURS_BITS)
+#define VER_ORIGINALFILENAME_STR    "libtime" DETOURS_STRINGIFY(DETOURS_BITS) ".dll"
+#define VER_FILEDESCRIPTION_STR     "Process Time Counting Module"
+#define VER_COMPANYNAME_STR         "Microsoft Corporation"
+
+#include "common.ver"
