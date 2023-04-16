@@ -1,4 +1,5 @@
 #include "libtime.h"
+#include <ctype.h>
 
 HANDLE mutex; // 互斥锁
 HANDLE event; // 条件变量
@@ -7,7 +8,7 @@ HANDLE map_file; // 共享内存
 #define PATH_LEN 32768
 char dll_path[PATH_LEN];
 
-void PrintLastError(const char* funcName) {
+void PrintLastError(const char *funcName) {
 	LPSTR msg;
 	FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
 		NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&msg, 0, NULL);
@@ -227,31 +228,7 @@ long DetachDetours() {
 }
 
 BOOL ProcessAttach(HMODULE dll) {
-    map_file = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, SHARED_MEM_NAME);
-    if (!map_file) {
-        PrintLastError("OpenFileMapping");
-        fprintf(stderr, "ERROR: The main program must run first to create the shared memory " SHARED_MEM_NAME ".\n");
-        return FALSE;
-    }
-    shared = (Shared *) MapViewOfFile(map_file, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(Shared));
-    if (!shared) {
-        PrintLastError("MapViewOfFile");
-        return FALSE;
-    }
-    mutex = OpenMutexA(MUTEX_ALL_ACCESS, FALSE, MUTEX_NAME);
-    if (!mutex) {
-        PrintLastError("OpenMutex");
-        fprintf(stderr, "ERROR: The main program must run first to create the mutex " MUTEX_NAME ".\n");
-        return FALSE;
-    }
-    event = OpenEventA(EVENT_ALL_ACCESS, FALSE, EVENT_NAME);
-    if (!event) {
-        PrintLastError("OpenEvent");
-        fprintf(stderr, "ERROR: The main program must run first to create the mutex " EVENT_NAME ".\n");
-        return FALSE;
-    }
-
-	unsigned long len = GetModuleFileNameA(dll, dll_path, PATH_LEN);
+    unsigned long len = GetModuleFileNameA(dll, dll_path, PATH_LEN);
     unsigned long error = GetLastError();
     if (len == 0 || error == ERROR_INSUFFICIENT_BUFFER) {
         LPSTR msg;
@@ -259,6 +236,37 @@ BOOL ProcessAttach(HMODULE dll) {
                        NULL, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&msg, 0, NULL);
         fprintf(stderr, "GetModuleFileName failed: %s\n", msg);
         LocalFree(msg);
+        return FALSE;
+    }
+
+    char *num_start = strrchr(dll_path, '\\');
+    char *num_end;
+    for (num_end = ++num_start; isdigit(*num_end); num_end++);
+    strncat(shared_mem_name, num_start, num_end - num_start);
+    strncat(mutex_name, num_start, num_end - num_start);
+    strncat(event_name, num_start, num_end - num_start);
+
+    map_file = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, shared_mem_name);
+    if (!map_file) {
+        PrintLastError("OpenFileMapping");
+        fprintf(stderr, "ERROR: The main program must run first to create the shared memory %s.\n", shared_mem_name);
+        return FALSE;
+    }
+    shared = (Shared *) MapViewOfFile(map_file, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(Shared));
+    if (!shared) {
+        PrintLastError("MapViewOfFile");
+        return FALSE;
+    }
+    mutex = OpenMutexA(MUTEX_ALL_ACCESS, FALSE, mutex_name);
+    if (!mutex) {
+        PrintLastError("OpenMutex");
+        fprintf(stderr, "ERROR: The main program must run first to create the mutex %s.\n", mutex_name);
+        return FALSE;
+    }
+    event = OpenEventA(EVENT_ALL_ACCESS, FALSE, event_name);
+    if (!event) {
+        PrintLastError("OpenEvent");
+        fprintf(stderr, "ERROR: The main program must run first to create the mutex %s.\n", event_name);
         return FALSE;
     }
 

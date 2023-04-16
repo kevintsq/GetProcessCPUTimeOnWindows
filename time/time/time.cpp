@@ -1,11 +1,23 @@
 #include "libtime.h"
 
+#define SHARED_TIMING_INSTANCE_CNT_MEM_NAME "TimingInstanceCountMemory"
+#define TIMING_INSTANCE_CNT_MUTEX_NAME "TimingInstanceCountMutex"
+
+char dll_name[20];
+#if DETOURS_64BIT
+#define DLL_NAME "libtime64.dll"
+#else
+#define DLL_NAME "libtime32.dll"
+#endif
+
+unsigned short *shared_timing_instance_cnt;
+
 HANDLE subprocesses[MAX_IDS];
 int n_subprocess;
 BOOL finished;
 HANDLE event;
 
-unsigned long PrintLastError(const char* funcName) {
+unsigned long PrintLastError(const char *funcName) {
     LPSTR msg;
     unsigned long error = GetLastError();
     FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
@@ -51,13 +63,13 @@ static BOOL ExportCallback(_In_opt_ void *context,
 unsigned long OpenSubprocesses(void* ignored) {
     (void) ignored;
 
-    HANDLE mutex = CreateMutexA(NULL, FALSE, MUTEX_NAME);
+    HANDLE mutex = CreateMutexA(NULL, FALSE, mutex_name);
     if (!mutex) {
         PrintLastError("OpenMutex");
         PrintFallbackWarning();
         return EXIT_FAILURE;
     }
-    event = CreateEventA(NULL, FALSE, FALSE, EVENT_NAME);
+    event = CreateEventA(NULL, FALSE, FALSE, event_name);
     if (!event) {
         PrintLastError("OpenEvent");
         PrintFallbackWarning();
@@ -188,12 +200,8 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    HANDLE map_file, timing_thread = NULL;
-#if DETOURS_64BIT
-    const char dll_name[] = "libtime64.dll";
-#else
-    const char dll_name[] = "libtime32.dll";
-#endif
+    HANDLE map_file, timing_instance_cnt_map_file, timing_thread = NULL;
+    unsigned short timing_instance_cnt = 0;
     unsigned long dll_path_len;
     char *dll_path;
     HMODULE dll;
@@ -206,11 +214,52 @@ int main(int argc, char *argv[]) {
         goto no_include_subs;
     }
 
-    map_file = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, SHARED_MEM_NAME);
-    if (map_file) {
-        fprintf(stderr, "WARNING: Too many instances. Falling back to inaccurate mode. Only the time of one child process created directly will be counted.\n");
+    timing_instance_cnt_map_file = CreateFileMappingA(NULL, NULL, PAGE_READWRITE, 0, sizeof(unsigned short), SHARED_TIMING_INSTANCE_CNT_MEM_NAME);
+    if (!timing_instance_cnt_map_file) {
+        PrintLastError("CreateFileMapping");
+        PrintFallbackWarning();
         goto no_include_subs;
     }
+    shared_timing_instance_cnt = (unsigned short *) MapViewOfFile(timing_instance_cnt_map_file, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+    if (!shared_timing_instance_cnt) {
+        PrintLastError("MapViewOfFile");
+        PrintFallbackWarning();
+        goto no_include_subs;
+    }
+    HANDLE mutex = CreateMutexA(NULL, FALSE, TIMING_INSTANCE_CNT_MUTEX_NAME);
+    if (!mutex) {
+        PrintLastError("CreateMutex");
+        PrintFallbackWarning();
+        goto no_include_subs;
+    }
+    WaitForSingleObject(mutex, INFINITE);
+    timing_instance_cnt = *shared_timing_instance_cnt;
+    if (timing_instance_cnt == USHRT_MAX) {
+        fprintf(stderr, "WARNING: Too many instances. Falling back to inaccurate mode. Only the time of one child process created directly will be counted.\n");
+        ReleaseMutex(mutex);
+        goto no_include_subs;
+    }
+    (*shared_timing_instance_cnt)++;
+    ReleaseMutex(mutex);
+    if (timing_instance_cnt > 0) {
+        sprintf(shared_mem_name, "%s%hu", shared_mem_name, timing_instance_cnt);
+        sprintf(mutex_name, "%s%hu", mutex_name, timing_instance_cnt);
+        sprintf(event_name, "%s%hu", event_name, timing_instance_cnt);
+        sprintf(dll_name, "%hu" DLL_NAME, timing_instance_cnt);
+        if (!CopyFileA(DLL_NAME, dll_name, TRUE)) {
+            PrintLastError("CopyFile");
+            PrintFallbackWarning();
+            goto no_include_subs;
+        }
+    } else {
+        strcpy(dll_name, DLL_NAME);
+    }
+
+//    map_file = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, SHARED_MEM_NAME);
+//    if (map_file) {
+//        fprintf(stderr, "WARNING: Too many instances. Falling back to inaccurate mode. Only the time of one child process created directly will be counted.\n");
+//        goto no_include_subs;
+//    }
 
     dll_path_len = GetFullPathNameA(dll_name, 0, NULL, NULL);
     dll_path = (char *) malloc(dll_path_len);
@@ -229,7 +278,7 @@ int main(int argc, char *argv[]) {
         goto no_include_subs;
     }
 
-    map_file = CreateFileMappingA(NULL, NULL, PAGE_READWRITE, 0, sizeof(Shared), SHARED_MEM_NAME);
+    map_file = CreateFileMappingA(NULL, NULL, PAGE_READWRITE, 0, sizeof(Shared), shared_mem_name);
     if (!map_file) {
         PrintLastError("CreateFileMapping");
         PrintFallbackWarning();
@@ -333,5 +382,12 @@ normal:
         PrintLastError("GetExitCodeProcess");
     }
     printf("Process finished with exit code %lx\n", exit_code);
+
+    if (timing_instance_cnt > 0) {
+        if (!DeleteFileA(dll_name)) {
+            PrintLastError("DeleteFile");
+            fprintf(stderr, "INFO: %s can't be deleted. You can delete it manually afterwards.\n", dll_name);
+        }
+    }
     return exit_code;
 }

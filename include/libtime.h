@@ -6,9 +6,6 @@
 #include <windows.h>
 #include "detours.h"
 
-#define SHARED_MEM_NAME "TimingSharedMemory"
-#define MUTEX_NAME "TimingMutex"
-#define EVENT_NAME "TimingEvent"
 #define MAX_IDS 8191
 typedef struct id_t {
     unsigned long pid;
@@ -21,5 +18,9 @@ typedef struct shared_t {
 } Shared;
 
 Shared* shared;
+
+char shared_mem_name[24] = "TimingSharedMemory";
+char mutex_name[24] = "TimingMutex";
+char event_name[24] = "TimingEvent";
 
 #endif //GETPROCESSCPUTIMEONWINDOWS_LIBTIME_H
