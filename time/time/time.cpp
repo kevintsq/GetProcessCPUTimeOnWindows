@@ -28,7 +28,7 @@ unsigned long PrintLastError(const char *funcName) {
 }
 
 static inline void PrintFallbackWarning() {
-    fprintf(stderr, "WARNING: Falling back to inaccurate mode. Only the time of one child process created directly will be counted.\n");
+    fprintf(stderr, "WARNING: Falling back to -n mode. Only the time of one child process created directly will be counted.\n");
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -235,7 +235,7 @@ int main(int argc, char *argv[]) {
     WaitForSingleObject(mutex, INFINITE);
     timing_instance_cnt = *shared_timing_instance_cnt;
     if (timing_instance_cnt == USHRT_MAX) {
-        fprintf(stderr, "WARNING: Too many instances. Falling back to inaccurate mode. Only the time of one child process created directly will be counted.\n");
+        fprintf(stderr, "WARNING: Too many instances. Falling back to -n mode. Only the time of one child process created directly will be counted.\n");
         ReleaseMutex(mutex);
         goto no_include_subs;
     }
@@ -254,12 +254,6 @@ int main(int argc, char *argv[]) {
     } else {
         strcpy(dll_name, DLL_NAME);
     }
-
-//    map_file = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, SHARED_MEM_NAME);
-//    if (map_file) {
-//        fprintf(stderr, "WARNING: Too many instances. Falling back to inaccurate mode. Only the time of one child process created directly will be counted.\n");
-//        goto no_include_subs;
-//    }
 
     dll_path_len = GetFullPathNameA(dll_name, 0, NULL, NULL);
     dll_path = (char *) malloc(dll_path_len);
