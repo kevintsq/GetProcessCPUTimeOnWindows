@@ -1,16 +1,15 @@
 #include "libtime.h"
 
-#define SHARED_TIMING_INSTANCE_CNT_MEM_NAME "TimingInstanceCountMemory"
 #define TIMING_INSTANCE_CNT_MUTEX_NAME "TimingInstanceCountMutex"
 
-char dll_name[20];
+char dll_name[34];
 #if DETOURS_64BIT
 #define DLL_NAME "libtime64.dll"
 #else
 #define DLL_NAME "libtime32.dll"
 #endif
 
-unsigned short *shared_timing_instance_cnt;
+size_t *shared_timing_instance_cnt;
 
 HANDLE subprocesses[MAX_IDS];
 int n_subprocess;
@@ -18,17 +17,18 @@ BOOL finished;
 HANDLE event;
 
 unsigned long PrintLastError(const char *funcName) {
-    LPSTR msg;
+    char *msg;
     unsigned long error = GetLastError();
     FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-                   NULL, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&msg, 0, NULL);
+                   NULL, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (char *) &msg, 0, NULL);
     fprintf(stderr, "%s failed: %s", funcName, msg);
     LocalFree(msg);
     return error;
 }
 
 static inline void PrintFallbackWarning() {
-    fprintf(stderr, "WARNING: Falling back to -n mode. Only the time of one child process created directly will be counted.\n");
+    fprintf(stderr, "WARNING: Falling back to -n mode. "
+                    "Only the time of one subprocess created directly will be counted.\n");
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -132,10 +132,27 @@ void ProcessTimes(FILETIME creation_time, FILETIME exit_time, FILETIME kernel_ti
                          ((double) exit_time.dwHighDateTime - (double) creation_time.dwHighDateTime) * 429.4967296;
     }
     if (kernel_time_sec != NULL) {
-        *kernel_time_sec += (double) kernel_time.dwLowDateTime / 10000000.0 + (double) kernel_time.dwHighDateTime * 429.4967296;
+        *kernel_time_sec += (double) kernel_time.dwLowDateTime / 10000000.0 +
+                            (double) kernel_time.dwHighDateTime * 429.4967296;
     }
     if (user_time_sec != NULL) {
-        *user_time_sec += (double) user_time.dwLowDateTime / 10000000.0 + (double) user_time.dwHighDateTime * 429.4967296;
+        *user_time_sec += (double) user_time.dwLowDateTime / 10000000.0 +
+                          (double) user_time.dwHighDateTime * 429.4967296;
+    }
+}
+
+BOOL IsFileExists(const char *path) {
+    unsigned long attr = GetFileAttributesA(path);
+    return (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY));
+}
+
+BOOL IsFileLocked(const char *path) {
+    HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) {
+        return TRUE;
+    } else {
+        CloseHandle(file);
+        return FALSE;
     }
 }
 
@@ -201,7 +218,7 @@ int main(int argc, char *argv[]) {
     }
 
     HANDLE map_file, timing_instance_cnt_map_file, timing_thread = NULL;
-    unsigned short timing_instance_cnt = 0;
+    size_t timing_instance_cnt = 0;
     unsigned long dll_path_len;
     char *dll_path;
     HMODULE dll;
@@ -214,13 +231,14 @@ int main(int argc, char *argv[]) {
         goto no_include_subs;
     }
 
-    timing_instance_cnt_map_file = CreateFileMappingA(NULL, NULL, PAGE_READWRITE, 0, sizeof(unsigned short), SHARED_TIMING_INSTANCE_CNT_MEM_NAME);
+    timing_instance_cnt_map_file = CreateFileMappingA(NULL, NULL, PAGE_READWRITE, 0, sizeof(size_t),
+                                                      SHARED_TIMING_INSTANCE_CNT_MEM_NAME);
     if (!timing_instance_cnt_map_file) {
         PrintLastError("CreateFileMapping");
         PrintFallbackWarning();
         goto no_include_subs;
     }
-    shared_timing_instance_cnt = (unsigned short *) MapViewOfFile(timing_instance_cnt_map_file, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+    shared_timing_instance_cnt = (size_t *) MapViewOfFile(timing_instance_cnt_map_file, FILE_MAP_ALL_ACCESS, 0, 0, 0);
     if (!shared_timing_instance_cnt) {
         PrintLastError("MapViewOfFile");
         PrintFallbackWarning();
@@ -234,19 +252,26 @@ int main(int argc, char *argv[]) {
     }
     WaitForSingleObject(mutex, INFINITE);
     timing_instance_cnt = *shared_timing_instance_cnt;
-    if (timing_instance_cnt == USHRT_MAX) {
-        fprintf(stderr, "WARNING: Too many instances. Falling back to -n mode. Only the time of one child process created directly will be counted.\n");
+    if (timing_instance_cnt == SIZE_MAX) {
+        fprintf(stderr, "WARNING: Too many instances. Falling back to -n mode. "
+                        "Only the time of one child process created directly will be counted.\n");
         ReleaseMutex(mutex);
         goto no_include_subs;
     }
     (*shared_timing_instance_cnt)++;
     ReleaseMutex(mutex);
     if (timing_instance_cnt > 0) {
-        sprintf(shared_mem_name, "%s%hu", shared_mem_name, timing_instance_cnt);
-        sprintf(mutex_name, "%s%hu", mutex_name, timing_instance_cnt);
-        sprintf(event_name, "%s%hu", event_name, timing_instance_cnt);
-        sprintf(dll_name, "%hu" DLL_NAME, timing_instance_cnt);
-        if (!CopyFileA(DLL_NAME, dll_name, TRUE)) {
+        sprintf(shared_mem_name, "%s%zu", shared_mem_name, timing_instance_cnt);
+        sprintf(mutex_name, "%s%zu", mutex_name, timing_instance_cnt);
+        sprintf(event_name, "%s%zu", event_name, timing_instance_cnt);
+        sprintf(dll_name, "%zu" DLL_NAME, timing_instance_cnt);
+        if (IsFileExists(dll_name) && IsFileLocked(dll_name)) {
+            fprintf(stderr, "WARNING: The subprocess using %s has not exited. "
+                            "Falling back to -n mode. Only the time of one subprocess "
+                            "created directly will be counted.\n", dll_name);
+            goto no_include_subs;
+        }
+        if (!CopyFileA(DLL_NAME, dll_name, FALSE)) {
             PrintLastError("CopyFile");
             PrintFallbackWarning();
             goto no_include_subs;

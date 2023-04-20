@@ -19,8 +19,9 @@ typedef struct shared_t {
 
 Shared* shared;
 
-char shared_mem_name[24] = "TimingSharedMemory";
-char mutex_name[24] = "TimingMutex";
-char event_name[24] = "TimingEvent";
+#define SHARED_TIMING_INSTANCE_CNT_MEM_NAME "TimingInstanceCountMemory"
+char shared_mem_name[40] = "TimingSharedMemory";
+char mutex_name[32] = "TimingMutex";
+char event_name[32] = "TimingEvent";
 
 #endif //GETPROCESSCPUTIMEONWINDOWS_LIBTIME_H

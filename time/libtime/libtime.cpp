@@ -1,17 +1,18 @@
 #include "libtime.h"
 #include <ctype.h>
 
-HANDLE mutex; // 互斥锁
-HANDLE event; // 条件变量
-HANDLE map_file; // 共享内存
+HANDLE mutex;
+HANDLE event;
+HANDLE map_file;
+HANDLE timing_instance_cnt_map_file;
 
 #define PATH_LEN 32768
 char dll_path[PATH_LEN];
 
 void PrintLastError(const char *funcName) {
-	LPSTR msg;
+	char *msg;
 	FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-		NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&msg, 0, NULL);
+		NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (char *) &msg, 0, NULL);
 	fprintf(stderr, "%s failed: %s", funcName, msg);
 	LocalFree(msg);
 }
@@ -69,7 +70,6 @@ BOOL __stdcall Mine_CreateProcessA(LPCSTR lpApplicationName,
                                           lpProcessInformation,
                                           dll_path,
                                           Real_CreateProcessA);
-    // 如果创建进程成功，则保存孙子进程的 id
     if (rv) {
         WaitForSingleObject(mutex, INFINITE);
         if (shared->cnt < MAX_IDS) {
@@ -113,7 +113,6 @@ BOOL __stdcall Mine_CreateProcessW(LPCWSTR lpApplicationName,
                                           lpProcessInformation,
                                           dll_path,
                                           Real_CreateProcessW);
-    // 如果创建进程成功，则保存孙子进程的 id
     if (rv) {
         WaitForSingleObject(mutex, INFINITE);
         if (shared->cnt < MAX_IDS) {
@@ -231,9 +230,9 @@ BOOL ProcessAttach(HMODULE dll) {
     unsigned long len = GetModuleFileNameA(dll, dll_path, PATH_LEN);
     unsigned long error = GetLastError();
     if (len == 0 || error == ERROR_INSUFFICIENT_BUFFER) {
-        LPSTR msg;
+        char *msg;
         FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-                       NULL, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&msg, 0, NULL);
+                       NULL, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (char *) &msg, 0, NULL);
         fprintf(stderr, "GetModuleFileName failed: %s\n", msg);
         LocalFree(msg);
         return FALSE;
@@ -246,6 +245,16 @@ BOOL ProcessAttach(HMODULE dll) {
     strncat(mutex_name, num_start, num_end - num_start);
     strncat(event_name, num_start, num_end - num_start);
 
+    // In order to avoid zombie subprocesses affecting other timing processes,
+    // the child process also needs to open the shared memory so that it will be reclaimed
+    // only when there are no timing processes running, i.e., shared_timing_instance_cnt will be cleared.
+    timing_instance_cnt_map_file = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, SHARED_TIMING_INSTANCE_CNT_MEM_NAME);
+    if (!timing_instance_cnt_map_file) {
+        PrintLastError("OpenFileMapping");
+        fprintf(stderr, "ERROR: The main program must run first to create the shared memory "
+                        SHARED_TIMING_INSTANCE_CNT_MEM_NAME ".\n");
+        return FALSE;
+    }
     map_file = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, shared_mem_name);
     if (!map_file) {
         PrintLastError("OpenFileMapping");
@@ -289,6 +298,9 @@ BOOL ProcessDetach() {
 	if (map_file) {
 		CloseHandle(map_file);
 	}
+    if (timing_instance_cnt_map_file) {
+        CloseHandle(timing_instance_cnt_map_file);
+    }
 	return TRUE;
 }
 
