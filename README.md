@@ -18,6 +18,8 @@ To build, MSVC Toolchain is needed. Open `Developer Command Prompt` or `Develope
 
 If you run multiple instances of `time.exe` at the same time, `%zulibtime*.dll` will be generated in the directory where all but the first instance is run, where `%zu` is the serial number indicating the order in which the instances are run. This way, the DLL that injects the child process can get the timing process group it currently belongs to via `GetModuleFileName`, and thus open the shared memory, locks, and condition variables that belong to that group. Currently, this is the only way I can think of to recursively pass information to the DLL at the moment. When a concurrently running instance exits, it automatically clears the generated copy of the DLL.
 
+Since `time.exe` already recursively records the CPU time consumed by the child processes created by the parent process, there is no reason to manually use `time.exe` recursively, e.g., using `time.exe` to time `time.exe`. However, it still works correctly even if you do so.
+
 ## Python C Extension
 
 Not yet completed бн

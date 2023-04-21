@@ -337,7 +337,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (shared->proc_creation_flags & CREATE_SUSPENDED) {
-        if (!ResumeThread(process_info.hThread)) {
+        if (ResumeThread(process_info.hThread) == -1) {
             PrintLastError("ResumeThread");
             TerminateProcess(process_info.hProcess, EXIT_FAILURE);
             PrintFallbackWarning();
