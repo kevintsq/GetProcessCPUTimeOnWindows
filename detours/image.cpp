@@ -9,37 +9,16 @@
 //  Used for for payloads, byways, and imports.
 //
 
-#if _MSC_VER >= 1900
-#pragma warning(push)
-#pragma warning(disable:4091) // empty typedef
-#endif
-#define _CRT_STDIO_ARBITRARY_WIDE_SPECIFIERS 1
-#define _ARM_WINAPI_PARTITION_DESKTOP_SDK_AVAILABLE 1
-#include <windows.h>
-#if _MSC_VER >= 1310
-#pragma warning(push)
-#if _MSC_VER > 1400
-#pragma warning(disable:6102 6103) // /analyze warnings
-#endif
-#include <strsafe.h>
-#pragma warning(pop)
-#endif
-
-#if (_MSC_VER < 1299)
+#if _MSC_VER < 1299
 #pragma warning(disable: 4710)
 #endif
 
 // #define DETOUR_DEBUG 1
 #define DETOURS_INTERNAL
-
 #include "detours.h"
 
 #if DETOURS_VERSION != 0x4c0c1   // 0xMAJORcMINORcPATCH
 #error detours.h version mismatch
-#endif
-
-#if _MSC_VER >= 1900
-#pragma warning(pop)
 #endif
 
 namespace Detour
@@ -166,6 +145,8 @@ protected:
     DWORD                   m_cbData;
     DWORD                   m_cbAlloc;
 };
+
+class CImageImportName;
 
 class CImageImportFile
 {
@@ -555,18 +536,7 @@ PBYTE CImageData::Find(REFGUID rguid, DWORD *pcbData)
             continue;
         }
 
-        if (pRecord->guid.Data1 == rguid.Data1 &&
-            pRecord->guid.Data2 == rguid.Data2 &&
-            pRecord->guid.Data3 == rguid.Data3 &&
-            pRecord->guid.Data4[0] == rguid.Data4[0] &&
-            pRecord->guid.Data4[1] == rguid.Data4[1] &&
-            pRecord->guid.Data4[2] == rguid.Data4[2] &&
-            pRecord->guid.Data4[3] == rguid.Data4[3] &&
-            pRecord->guid.Data4[4] == rguid.Data4[4] &&
-            pRecord->guid.Data4[5] == rguid.Data4[5] &&
-            pRecord->guid.Data4[6] == rguid.Data4[6] &&
-            pRecord->guid.Data4[7] == rguid.Data4[7]) {
-
+        if (DetourAreSameGuid(pRecord->guid, rguid)) {
             *pcbData = cbBytes - sizeof(DETOUR_SECTION_RECORD);
             return (PBYTE)(pRecord + 1);
         }
@@ -1714,17 +1684,13 @@ BOOL CImage::Write(HANDLE hFile)
         m_nNextFileAddr = Max(m_SectionHeaders[n].PointerToRawData +
                               m_SectionHeaders[n].SizeOfRawData,
                               m_nNextFileAddr);
-#if 0
-        m_nNextVirtAddr = Max(m_SectionHeaders[n].VirtualAddress +
-                              m_SectionHeaders[n].Misc.VirtualSize,
-                              m_nNextVirtAddr);
-#else
+        // Old images have VirtualSize == 0 as a matter of course, e.g. NT 3.1.
+        // In which case, use SizeOfRawData instead.
         m_nNextVirtAddr = Max(m_SectionHeaders[n].VirtualAddress +
                               (m_SectionHeaders[n].Misc.VirtualSize
                                ? m_SectionHeaders[n].Misc.VirtualSize
                                : SectionAlign(m_SectionHeaders[n].SizeOfRawData)),
                               m_nNextVirtAddr);
-#endif
 
         m_nExtraOffset = Max(m_nNextFileAddr, m_nExtraOffset);
 
@@ -1857,7 +1823,7 @@ BOOL CImage::Write(HANDLE hFile)
         for (CImageImportFile *pImportFile = m_pImportFiles;
              pImportFile != NULL; pImportFile = pImportFile->m_pNextFile) {
 
-            ZeroMemory(piidDst, sizeof(piidDst));
+            ZeroMemory(piidDst, sizeof(*piidDst));
             nameTable.Allocate(pImportFile->m_pszName, (DWORD *)&piidDst->Name);
             piidDst->TimeDateStamp = 0;
             piidDst->ForwarderChain = pImportFile->m_nForwarderChain;
@@ -1899,7 +1865,7 @@ BOOL CImage::Write(HANDLE hFile)
             }
             piidDst++;
         }
-        ZeroMemory(piidDst, sizeof(piidDst));
+        ZeroMemory(piidDst, sizeof(*piidDst));
 
         //////////////////////////////////////////////////////////////////////////
         //

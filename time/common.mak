@@ -23,7 +23,7 @@ CLIB=/MT
 !ENDIF
 
 AFLAGS=/nologo /c /Fl
-CFLAGS=$(CLIB) /GL /Gm- /W4 /WX /Zi /O2
+CFLAGS=/nologo $(CLIB) /GL /Gm- /Gy /W4 /WX /Zi /O2 /DDETOUR_DEBUG=$(DETOURS_DEBUG)
 
 !IF $(DETOURS_SOURCE_BROWSING)==1
 CFLAGS=$(CFLAGS) /FR
@@ -32,7 +32,7 @@ CFLAGS=$(CFLAGS) /I$(INCD)
 !ENDIF
 
 LIBFLAGS=/nologo
-LINKFLAGS=/release /incremental:no /profile /nodefaultlib:oldnames.lib /LTCG
+LINKFLAGS=/release /incremental:no /profile /nodefaultlib:oldnames.lib /ltcg
 
 !if defined(DETOURS_WIN_7) && defined(DETOURS_CL_17_OR_NEWER)
 CFLAGS=$(CFLAGS) /D_USING_V110_SDK71_

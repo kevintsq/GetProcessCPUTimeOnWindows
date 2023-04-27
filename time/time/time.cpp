@@ -3,13 +3,16 @@
 #define TIMING_INSTANCE_CNT_MUTEX_NAME "TimingInstanceCountMutex"
 
 char dll_name[34];
+char dll_name_other[34];
 #if DETOURS_64BIT
 #define DLL_NAME "libtime64.dll"
+#define DLL_NAME_OTHER "libtime32.dll"
 #else
 #define DLL_NAME "libtime32.dll"
+#define DLL_NAME_OTHER "libtime64.dll"
 #endif
 
-size_t *shared_timing_instance_cnt;
+unsigned long *shared_timing_instance_cnt;
 
 HANDLE subprocesses[MAX_IDS];
 int n_subprocess;
@@ -42,10 +45,10 @@ typedef struct export_context_t {
     ULONG   nExports;
 } ExportContext;
 
-static BOOL ExportCallback(_In_opt_ void *context,
-                           _In_ unsigned long ordinal,
-                           _In_opt_ const char *symbol,
-                           _In_opt_ void *target)
+static BOOL CALLBACK ExportCallback(_In_opt_ void *context,
+                                    _In_ unsigned long ordinal,
+                                    _In_opt_ const char *symbol,
+                                    _In_opt_ void *target)
 {
     (void) symbol;
     (void) target;
@@ -60,7 +63,7 @@ static BOOL ExportCallback(_In_opt_ void *context,
     return TRUE;
 }
 
-unsigned long OpenSubprocesses(void* ignored) {
+unsigned long OpenSubprocesses(void *ignored) {
     (void) ignored;
 
     HANDLE mutex = CreateMutexA(NULL, FALSE, mutex_name);
@@ -141,18 +144,22 @@ void ProcessTimes(FILETIME creation_time, FILETIME exit_time, FILETIME kernel_ti
     }
 }
 
-BOOL IsFileExists(const char *path) {
-    unsigned long attr = GetFileAttributesA(path);
-    return (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY));
-}
-
-BOOL IsFileLocked(const char *path) {
-    HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (file == INVALID_HANDLE_VALUE) {
+BOOL CopyDll(const char *source, const char *target) {
+    if (CopyFileA(source, target, FALSE)) {
         return TRUE;
     } else {
-        CloseHandle(file);
+        PrintLastError("CopyFile");
+        fprintf(stderr, "WARNING: The subprocess using %s may have not exited. "
+                        "Falling back to -n mode. Only the time of one subprocess "
+                        "created directly will be counted.\n", target);
         return FALSE;
+    }
+}
+
+void DeleteDll(const char *target) {
+    if (!DeleteFileA(target)) {
+        PrintLastError("DeleteFile");
+        fprintf(stderr, "INFO: %s can't be deleted. You can delete it manually afterwards.\n", target);
     }
 }
 
@@ -218,7 +225,7 @@ int main(int argc, char *argv[]) {
     }
 
     HANDLE map_file, timing_instance_cnt_map_file, timing_thread = NULL;
-    size_t timing_instance_cnt = 0;
+    unsigned long timing_instance_cnt = 0;
     unsigned long dll_path_len;
     char *dll_path;
     HMODULE dll;
@@ -231,14 +238,14 @@ int main(int argc, char *argv[]) {
         goto no_include_subs;
     }
 
-    timing_instance_cnt_map_file = CreateFileMappingA(NULL, NULL, PAGE_READWRITE, 0, sizeof(size_t),
+    timing_instance_cnt_map_file = CreateFileMappingA(NULL, NULL, PAGE_READWRITE, 0, sizeof(unsigned long),
                                                       SHARED_TIMING_INSTANCE_CNT_MEM_NAME);
     if (!timing_instance_cnt_map_file) {
         PrintLastError("CreateFileMapping");
         PrintFallbackWarning();
         goto no_include_subs;
     }
-    shared_timing_instance_cnt = (size_t *) MapViewOfFile(timing_instance_cnt_map_file, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+    shared_timing_instance_cnt = (unsigned long *) MapViewOfFile(timing_instance_cnt_map_file, FILE_MAP_ALL_ACCESS, 0, 0, 0);
     if (!shared_timing_instance_cnt) {
         PrintLastError("MapViewOfFile");
         PrintFallbackWarning();
@@ -261,19 +268,12 @@ int main(int argc, char *argv[]) {
     (*shared_timing_instance_cnt)++;
     ReleaseMutex(mutex);
     if (timing_instance_cnt > 0) {
-        sprintf(shared_mem_name, "%s%zu", shared_mem_name, timing_instance_cnt);
-        sprintf(mutex_name, "%s%zu", mutex_name, timing_instance_cnt);
-        sprintf(event_name, "%s%zu", event_name, timing_instance_cnt);
-        sprintf(dll_name, "%zu" DLL_NAME, timing_instance_cnt);
-        if (IsFileExists(dll_name) && IsFileLocked(dll_name)) {
-            fprintf(stderr, "WARNING: The subprocess using %s has not exited. "
-                            "Falling back to -n mode. Only the time of one subprocess "
-                            "created directly will be counted.\n", dll_name);
-            goto no_include_subs;
-        }
-        if (!CopyFileA(DLL_NAME, dll_name, FALSE)) {
-            PrintLastError("CopyFile");
-            PrintFallbackWarning();
+        sprintf(shared_mem_name, "%s%lu", shared_mem_name, timing_instance_cnt);
+        sprintf(mutex_name, "%s%lu", mutex_name, timing_instance_cnt);
+        sprintf(event_name, "%s%lu", event_name, timing_instance_cnt);
+        sprintf(dll_name, "%lu" DLL_NAME, timing_instance_cnt);
+        sprintf(dll_name_other, "%lu" DLL_NAME_OTHER, timing_instance_cnt);
+        if (!CopyDll(DLL_NAME, dll_name) || !CopyDll(DLL_NAME_OTHER, dll_name_other)) {
             goto no_include_subs;
         }
     } else {
@@ -403,10 +403,8 @@ normal:
     printf("Process finished with exit code %lx\n", exit_code);
 
     if (timing_instance_cnt > 0) {
-        if (!DeleteFileA(dll_name)) {
-            PrintLastError("DeleteFile");
-            fprintf(stderr, "INFO: %s can't be deleted. You can delete it manually afterwards.\n", dll_name);
-        }
+        DeleteDll(dll_name);
+        DeleteDll(dll_name_other);
     }
     return exit_code;
 }

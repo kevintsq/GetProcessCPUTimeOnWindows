@@ -1,5 +1,7 @@
 #include "libtime.h"
 #include <ctype.h>
+#include <psapi.h>
+//BOOL is_loaded = FALSE;
 
 HANDLE mutex;
 HANDLE event;
@@ -58,18 +60,18 @@ BOOL __stdcall Mine_CreateProcessA(LPCSTR lpApplicationName,
 		ZeroMemory(&procInfo, sizeof(procInfo));
 	}
 
-	BOOL rv = DetourCreateProcessWithDllA(lpApplicationName,
-                                          lpCommandLine,
-                                          lpProcessAttributes,
-                                          lpThreadAttributes,
-                                          bInheritHandles,
-                                          dwCreationFlags | shared->proc_creation_flags,
-                                          lpEnvironment,
-                                          lpCurrentDirectory,
-                                          lpStartupInfo,
-                                          lpProcessInformation,
-                                          dll_path,
-                                          Real_CreateProcessA);
+	BOOL rv = DetourCreateProcessWithDllExA(lpApplicationName,
+                                            lpCommandLine,
+                                            lpProcessAttributes,
+                                            lpThreadAttributes,
+                                            bInheritHandles,
+                                            dwCreationFlags | shared->proc_creation_flags,
+                                            lpEnvironment,
+                                            lpCurrentDirectory,
+                                            lpStartupInfo,
+                                            lpProcessInformation,
+                                            dll_path,
+                                            Real_CreateProcessA);
     if (rv) {
         WaitForSingleObject(mutex, INFINITE);
         if (shared->cnt < MAX_IDS) {
@@ -101,18 +103,18 @@ BOOL __stdcall Mine_CreateProcessW(LPCWSTR lpApplicationName,
 		ZeroMemory(&procInfo, sizeof(procInfo));
 	}
 
-	BOOL rv = DetourCreateProcessWithDllW(lpApplicationName,
-                                          lpCommandLine,
-                                          lpProcessAttributes,
-                                          lpThreadAttributes,
-                                          bInheritHandles,
-                                          dwCreationFlags | shared->proc_creation_flags,
-                                          lpEnvironment,
-                                          lpCurrentDirectory,
-                                          lpStartupInfo,
-                                          lpProcessInformation,
-                                          dll_path,
-                                          Real_CreateProcessW);
+	BOOL rv = DetourCreateProcessWithDllExW(lpApplicationName,
+                                            lpCommandLine,
+                                            lpProcessAttributes,
+                                            lpThreadAttributes,
+                                            bInheritHandles,
+                                            dwCreationFlags | shared->proc_creation_flags,
+                                            lpEnvironment,
+                                            lpCurrentDirectory,
+                                            lpStartupInfo,
+                                            lpProcessInformation,
+                                            dll_path,
+                                            Real_CreateProcessW);
     if (rv) {
         WaitForSingleObject(mutex, INFINITE);
         if (shared->cnt < MAX_IDS) {
@@ -226,7 +228,23 @@ long DetachDetours() {
 	return DetourTransactionCommit();
 }
 
+void PrintProcessName() {
+    unsigned long pid = GetCurrentProcessId();
+    HANDLE process = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+    HMODULE moduleHandles[32];
+    DWORD moduleSize;
+    if (EnumProcessModulesEx(process, moduleHandles, sizeof(moduleHandles) / sizeof(HMODULE), &moduleSize, LIST_MODULES_ALL)) {
+        char moduleFileName[MAX_PATH];
+        if (GetModuleFileNameExA(process, moduleHandles[0], moduleFileName, sizeof(moduleFileName) / sizeof(char))) {
+            printf("Loaded by process: %s\n", moduleFileName);
+        }
+    } else {
+        PrintLastError("EnumProcessModules");
+    }
+}
+
 BOOL ProcessAttach(HMODULE dll) {
+//    PrintProcessName();
     unsigned long len = GetModuleFileNameA(dll, dll_path, PATH_LEN);
     unsigned long error = GetLastError();
     if (len == 0 || error == ERROR_INSUFFICIENT_BUFFER) {
@@ -304,11 +322,16 @@ BOOL ProcessDetach() {
 	return TRUE;
 }
 
-BOOL DllMain(HINSTANCE module, DWORD reason, PVOID reserved) {
+BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, PVOID reserved) {
 	(void) module;
 	(void) reserved;
 
 	if (DetourIsHelperProcess()) {
+//        if (!is_loaded) {
+//            printf("(Helper Process) ");
+//            PrintProcessName();
+//        }
+//        is_loaded = TRUE;
 		return TRUE;
 	}
 
