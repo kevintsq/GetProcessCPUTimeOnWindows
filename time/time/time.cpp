@@ -234,6 +234,7 @@ int main(int argc, char *argv[]) {
     startup_info.cb = sizeof(startup_info);
     PROCESS_INFORMATION process_info;
 
+    SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED);
     if (!include_subs) {
         goto no_include_subs;
     }
@@ -406,5 +407,6 @@ normal:
         DeleteDll(dll_name);
         DeleteDll(dll_name_other);
     }
+    SetThreadExecutionState(ES_CONTINUOUS);
     return exit_code;
 }
